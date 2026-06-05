@@ -1,5 +1,20 @@
 # 3D AI Studio API Skill
 
+<br>
+
+[![Windows](https://img.shields.io/badge/Windows-supported-blue.svg)](#supported-platforms)
+[![macOS](https://img.shields.io/badge/macOS-supported-blue.svg)](#supported-platforms)
+[![Linux](https://img.shields.io/badge/Linux-supported-blue.svg)](#supported-platforms)
+
+[![Claude Code](https://img.shields.io/badge/Claude_Code-supported-blueviolet.svg)](#supported-agents)
+[![Cursor](https://img.shields.io/badge/Cursor-supported-blueviolet.svg)](#supported-agents)
+[![Codex](https://img.shields.io/badge/Codex-supported-blueviolet.svg)](#supported-agents)
+[![opencode](https://img.shields.io/badge/opencode-supported-blueviolet.svg)](#supported-agents)
+[![Hermes Agent](https://img.shields.io/badge/Hermes_Agent-supported-blueviolet.svg)](#supported-agents)
+[![Gemini](https://img.shields.io/badge/Gemini-supported-blueviolet.svg)](#supported-agents)
+[![Antigravity](https://img.shields.io/badge/Antigravity-supported-blueviolet.svg)](#supported-agents)
+[![Kiro](https://img.shields.io/badge/Kiro-supported-blueviolet.svg)](#supported-agents)
+
 An agent skill for the [3D AI Studio API](https://www.3daistudio.com/Platform/API). Gives Claude and Hermes agents programmatic access to 3D model generation, AI image generation, 3D tools, and the miniature figurine flow.
 
 ## What This Skill Does

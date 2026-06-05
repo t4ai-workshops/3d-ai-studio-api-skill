@@ -1,314 +1,172 @@
-# 3D AI Studio API Examples
+# 3D AI Studio API — Examples
 
-Real-world workflows and integration patterns.
+Real-world workflow examples using the Python client.
 
-## Example 1: Single Miniature with Polling
-
-Generate a miniature and wait for completion, then download.
+## 1. Check Balance Before Starting
 
 ```bash
-#!/bin/bash
-
-# 1. Start the job
-RESPONSE=$(python scripts/3d_api_client.py start-miniature \
-  --description "A sleeping tabby cat, 8cm tall, ceramic finish" \
-  --style realistic \
-  --size 8 \
-  --output-format gltf)
-
-JOB_ID=$(echo "$RESPONSE" | jq -r '.job_id')
-echo "Started job: $JOB_ID"
-
-# 2. Wait for completion (up to 10 minutes)
-for i in {1..120}; do
-  STATUS=$(python scripts/3d_api_client.py status --job-id "$JOB_ID" | jq -r '.status')
-  PROGRESS=$(python scripts/3d_api_client.py status --job-id "$JOB_ID" | jq -r '.progress')
-  
-  echo "[$i/120] Status: $STATUS (${PROGRESS}%)"
-  
-  [[ "$STATUS" == "completed" ]] && break
-  [[ "$STATUS" == "failed" ]] && {
-    echo "Job failed!"
-    python scripts/3d_api_client.py status --job-id "$JOB_ID" | jq .
-    exit 1
-  }
-  
-  sleep 5
-done
-
-# 3. Download result
-python scripts/3d_api_client.py fetch-result \
-  --job-id "$JOB_ID" \
-  --output-dir ./miniatures
-
-echo "Downloaded to ./miniatures/"
+python scripts/3d_api_client.py balance
+# → {"balance": "150.00"}
 ```
 
-## Example 2: Batch Job Submission and Tracking
-
-Submit multiple jobs, track them, and download results.
+## 2. Quick 3D Model from Text (Tencent Rapid)
 
 ```bash
-#!/bin/bash
+python scripts/3d_api_client.py tencent-rapid \
+  --prompt "a wooden chair with armrests" \
+  --enable-pbr \
+  --wait \
+  --output-dir ./models
+# → {"task_id": "abc-123", "status": "submitted"}
+# → [1/120] IN_PROGRESS (33%)
+# → [2/120] FINISHED (100%)
+# → {"downloaded": ["./models/model.glb"]}
+```
 
-# List of miniatures to generate
-declare -a MINIATURES=(
-  "A golden retriever sitting, 10cm, realistic"
-  "A tabby cat standing, 8cm, stylized"
-  "A German Shepherd head, 12cm, realistic"
-  "A parrot on a perch, 7cm, cartoon"
+## 3. Miniature Figurine from Photo
+
+```bash
+python scripts/3d_api_client.py miniature \
+  --image ./portrait.jpg \
+  --preset v3_miniature_human_full_body \
+  --edition default \
+  --scale h0 \
+  --wait \
+  --output-dir ./miniature_output
+# Results include styled_image.jpeg, figurine.glb, figurine_h0.glb (1:87), figurine_h0.zip
+```
+
+## 4. Image-to-3D with TRELLIS.2
+
+```bash
+python scripts/3d_api_client.py trellis \
+  --image ./product_photo.png \
+  --enable-pbr \
+  --wait \
+  --output-dir ./product_3d
+```
+
+## 5. Manual Polling Loop (Bash)
+
+```bash
+# Submit jobs and save task IDs
+TASK1=$(python scripts/3d_api_client.py tencent-rapid \
+  --prompt "a golden retriever" | python -c "import sys,json; print(json.load(sys.stdin)['task_id'])")
+
+TASK2=$(python scripts/3d_api_client.py tripo \
+  --prompt "a tabby cat" --version v3.1 | python -c "import sys,json; print(json.load(sys.stdin)['task_id'])")
+
+for TASK in $TASK1 $TASK2; do
+  while true; do
+    STATUS=$(python scripts/3d_api_client.py status --task-id $TASK \
+      | python -c "import sys,json; print(json.load(sys.stdin)['status'])")
+    [[ "$STATUS" == "FINISHED" || "$STATUS" == "FAILED" ]] && break
+    sleep 10
+  done
+  python scripts/3d_api_client.py download --task-id $TASK --output-dir "./results/$TASK"
+done
+```
+
+## 6. Image Generation → 3D Pipeline
+
+```bash
+# Generate clean product image
+python scripts/3d_api_client.py image-gemini31flash \
+  --prompt "a sleek modern chair, white background, product photo" \
+  --wait --output-dir ./ref_images
+
+# Use it for 3D generation
+python scripts/3d_api_client.py trellis \
+  --image ./ref_images/output.jpeg \
+  --enable-pbr --wait --output-dir ./chair_3d
+```
+
+## 7. Post-Processing: Generate → Repair → Convert
+
+```bash
+# Generate
+python scripts/3d_api_client.py tencent-rapid \
+  --prompt "a ceramic vase" --enable-pbr --wait --output-dir ./raw
+
+# Repair for 3D printing (use URL from result)
+python scripts/3d_api_client.py repair \
+  --model-url "https://storage.3daistudio.com/assets/model.glb" \
+  --wait --output-dir ./repaired
+
+# Convert to STL
+python scripts/3d_api_client.py convert \
+  --model-url "https://storage.3daistudio.com/assets/repaired.glb" \
+  --output-format stl --wait --output-dir ./final
+```
+
+## 8. Remove Background Before 3D
+
+```bash
+python scripts/3d_api_client.py remove-bg \
+  --image ./product.jpg --wait --output-dir ./cleaned
+
+python scripts/3d_api_client.py trellis \
+  --image ./cleaned/output.png \
+  --enable-pbr --wait --output-dir ./product_3d
+```
+
+## 9. Python Library Usage
+
+```python
+import base64
+from pathlib import Path
+from scripts.api_client import Client  # adjust import path as needed
+
+def encode_image(path):
+    data = Path(path).read_bytes()
+    return f"data:image/jpeg;base64,{base64.b64encode(data).decode()}"
+
+client = Client()  # reads 3D_AI_STUDIO_API_KEY from env
+
+# Check balance
+print(client.balance())  # {"balance": "150.00"}
+
+# Generate miniature
+task_id = client.miniature(
+    image=encode_image("./portrait.jpg"),
+    preset="v3_miniature_human_full_body",
+    edition="fast",
 )
 
-# Create tracking file
-: > jobs_tracking.txt
-
-# 1. Submit all jobs
-for desc in "${MINIATURES[@]}"; do
-  RESPONSE=$(python scripts/3d_api_client.py start-miniature \
-    --description "$desc" \
-    --style realistic)
-  
-  JOB_ID=$(echo "$RESPONSE" | jq -r '.job_id')
-  echo "$desc|$JOB_ID|pending" >> jobs_tracking.txt
-  echo "Submitted: $desc -> $JOB_ID"
-done
-
-# 2. Poll all jobs until complete
-PENDING_COUNT=$(grep -c 'pending\|processing' jobs_tracking.txt)
-while [[ $PENDING_COUNT -gt 0 ]]; do
-  echo "Checking status... ($PENDING_COUNT jobs remaining)"
-  
-  while IFS='|' read -r DESC JOB_ID STATUS; do
-    [[ "$STATUS" != "completed" && "$STATUS" != "failed" ]] || continue
-    
-    STATUS=$(python scripts/3d_api_client.py status --job-id "$JOB_ID" | jq -r '.status')
-    sed -i "s|^$DESC\|$JOB_ID\|.*|$DESC\|$JOB_ID\|$STATUS|" jobs_tracking.txt
-  done < jobs_tracking.txt
-  
-  PENDING_COUNT=$(grep -c 'pending\|processing' jobs_tracking.txt)
-  [[ $PENDING_COUNT -gt 0 ]] && sleep 10
-done
-
-# 3. Download all completed results
-mkdir -p ./batch_results
-
-while IFS='|' read -r DESC JOB_ID STATUS; do
-  if [[ "$STATUS" == "completed" ]]; then
-    python scripts/3d_api_client.py fetch-result \
-      --job-id "$JOB_ID" \
-      --output-dir "./batch_results/$JOB_ID"
-    echo "Downloaded: $DESC"
-  elif [[ "$STATUS" == "failed" ]]; then
-    echo "FAILED: $DESC ($JOB_ID)"
-  fi
-done < jobs_tracking.txt
-
-echo "Batch complete. Results in ./batch_results/"
+result = client.wait_for_completion(task_id)
+if result["status"] == "FINISHED":
+    paths = client.download_results(result, "./output")
+    print(paths)
 ```
 
-## Example 3: Lithophane Generation (Generic 3D)
+## Status Values
 
-Generate lithophanes from image descriptions.
+| Status | Meaning |
+|--------|---------|
+| `PENDING` | Queued |
+| `IN_PROGRESS` | Running |
+| `FINISHED` | Done — download results[] |
+| `FAILED` | Failed — credits refunded automatically |
 
-```bash
-#!/bin/bash
+## Credit Cost Reference
 
-# 1. Start lithophane generation
-JOB_ID=$(python scripts/3d_api_client.py start-generation \
-  --prompt "A detailed lithophane of a sunset over mountains, 200x150mm" \
-  --model detailed \
-  --output-format stl | jq -r '.job_id')
-
-echo "Lithophane job: $JOB_ID"
-
-# 2. Wait and download
-python scripts/3d_api_client.py status --job-id "$JOB_ID" --poll &
-POLL_PID=$!
-
-# Show progress while waiting
-while kill -0 $POLL_PID 2>/dev/null; do
-  sleep 1
-done
-
-# 3. Fetch result
-python scripts/3d_api_client.py fetch-result \
-  --job-id "$JOB_ID" \
-  --output-dir ./lithophanes
-
-echo "Lithophane ready for 3D printing"
-```
-
-## Example 4: Integration with Odoo (Order → Generation)
-
-Generate miniatures for Odoo orders automatically.
-
-```bash
-#!/usr/bin/env python3
-"""
-Pseudo-code: Process Odoo sale orders and generate corresponding miniatures.
-Requires odoo-manager skill integration.
-"""
-
-import subprocess
-import json
-
-def generate_for_order(order_id: str, pet_description: str, size: int = 10):
-    """Generate a miniature for an Odoo order."""
-    
-    # 1. Start generation
-    result = subprocess.run([
-        "python", "scripts/3d_api_client.py", "start-miniature",
-        "--description", pet_description,
-        "--size", str(size),
-        "--output-format", "gltf"
-    ], capture_output=True, text=True)
-    
-    job_data = json.loads(result.stdout)
-    job_id = job_data["job_id"]
-    
-    # 2. Store job_id in Odoo (sale.order extra field)
-    # odoo_update_order(order_id, {"generation_job_id": job_id})
-    
-    # 3. Wait for completion (async, maybe via cron)
-    return job_id
-
-def check_and_download_orders():
-    """Cron job: Check pending generation jobs and download results."""
-    
-    # Get all orders with pending jobs
-    # pending_orders = odoo_get_orders(generation_status='pending')
-    
-    # For each pending order:
-    # - Check job status
-    # - If complete, download and attach file
-    # - Update order status
-    # - Notify customer
-    
-    pass
-```
-
-## Example 5: Error Handling and Retry
-
-Robust error handling with exponential backoff.
-
-```bash
-#!/bin/bash
-
-# Configuration
-MAX_RETRIES=3
-BACKOFF_INITIAL=2
-BACKOFF_MAX=30
-
-submit_job_with_retry() {
-  local description="$1"
-  local retries=0
-  local backoff=$BACKOFF_INITIAL
-  
-  while [[ $retries -lt $MAX_RETRIES ]]; do
-    echo "Submitting job (attempt $((retries+1))/$MAX_RETRIES)..."
-    
-    if RESPONSE=$(python scripts/3d_api_client.py start-miniature \
-      --description "$description" 2>&1); then
-      
-      echo "$RESPONSE" | jq .
-      return 0
-    else
-      echo "Error: $RESPONSE"
-      retries=$((retries+1))
-      
-      if [[ $retries -lt $MAX_RETRIES ]]; then
-        echo "Retrying in ${backoff}s..."
-        sleep $backoff
-        backoff=$((backoff * 2))
-        [[ $backoff -gt $BACKOFF_MAX ]] && backoff=$BACKOFF_MAX
-      fi
-    fi
-  done
-  
-  echo "Job submission failed after $MAX_RETRIES attempts"
-  return 1
-}
-
-# Usage
-submit_job_with_retry "A sleeping cat, 10cm tall"
-```
-
-## Example 6: Status Monitoring Dashboard (Bash)
-
-Real-time job status overview.
-
-```bash
-#!/bin/bash
-
-JOBS_FILE="active_jobs.txt"
-
-# Format: JOB_ID|DESCRIPTION|SUBMITTED_TIME
-
-watch_jobs() {
-  while IFS='|' read -r JOB_ID DESC TIME; do
-    STATUS=$(python scripts/3d_api_client.py status --job-id "$JOB_ID" 2>/dev/null | jq -r '.status // "unknown"')
-    PROGRESS=$(python scripts/3d_api_client.py status --job-id "$JOB_ID" 2>/dev/null | jq -r '.progress // 0')
-    
-    printf "%-40s %-20s %3d%% (%s)\n" "$JOB_ID" "$STATUS" "$PROGRESS" "$DESC"
-  done < "$JOBS_FILE"
-}
-
-# Watch in a loop
-clear
-while true; do
-  echo "=== 3D AI Studio Jobs (Updated $(date)) ==="
-  watch_jobs
-  echo
-  sleep 5
-  clear
-done
-```
-
-## Example 7: Concurrent Polling with Parallel (GNU parallel)
-
-Speed up status checks with parallel processing.
-
-```bash
-#!/bin/bash
-
-# Get all job IDs from a file (one per line)
-cat active_jobs.txt | parallel -j 4 \
-  'python scripts/3d_api_client.py status --job-id {} | \
-   jq -r "\"{} \(.status) (\(.progress)%)\"" '
-
-# Or use xargs
-cat active_jobs.txt | xargs -P 4 -I {} \
-  python scripts/3d_api_client.py status --job-id {}
-```
-
-## Integration Checklist
-
-When integrating into a larger system:
-
-- [ ] Store job IDs in a database or file for tracking
-- [ ] Implement exponential backoff for errors
-- [ ] Set appropriate timeouts (30+ seconds)
-- [ ] Log all API interactions (job IDs, timestamps, responses)
-- [ ] Handle 429 (rate limit) gracefully
-- [ ] Download results within 24 hours (URLs expire)
-- [ ] Validate downloaded files (check file size, mime type)
-- [ ] Clean up old jobs via DELETE endpoint (optional)
-- [ ] Test with invalid descriptions (expected failures)
-- [ ] Monitor rate limits via `X-RateLimit-*` headers
-
-## Testing
-
-```bash
-# Test authentication
-python scripts/3d_api_client.py status --job-id test-job-id
-
-# Test with explicit token
-python scripts/3d_api_client.py \
-  --api-key "your-token" \
-  start-miniature --description "test"
-
-# Test with custom base URL
-python scripts/3d_api_client.py \
-  --base-url "https://staging-api.3dstudio.ai" \
-  status --job-id test-id
-```
+| Operation | Credits |
+|-----------|---------|
+| Tencent Rapid | 35 |
+| Tencent Pro | 60–100 |
+| TRELLIS.2 | 10–50 |
+| Tripo v3 | 0–120 |
+| Tripo P1 | 60–160 |
+| Gemini 3 Pro image | 10/image |
+| Gemini 3.1 Flash image | 7/image |
+| Gemini 2.5 Flash image | 5/image |
+| Miniature fast | 200 |
+| Miniature default | 300 |
+| Convert | 10 |
+| Render | 5–20 |
+| Repair | 60–90 |
+| Optimize | 10 |
+| Bake Texture | 5 |
+| Remove BG | 3–5 |
+| Image Enhance | 15–20 |
+| Volume Calculator | 20 |

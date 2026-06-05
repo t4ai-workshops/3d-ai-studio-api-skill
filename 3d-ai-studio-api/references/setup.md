@@ -51,8 +51,8 @@ Create a `.env` file in your workspace root (`~/.openclaw/workspace/`):
 # Required: Your 3D AI Studio API bearer token
 3D_AI_STUDIO_API_KEY=your_actual_bearer_token_here
 
-# Optional: Override API base URL (defaults to https://api.3dstudio.ai)
-3D_AI_STUDIO_API_URL=https://api.3dstudio.ai
+# Optional: Override API base URL (defaults to https://api.3daistudio.com)
+3D_AI_STUDIO_API_URL=https://api.3daistudio.com
 ```
 
 **Security:** Never commit `.env` to version control. Add to `.gitignore`:
@@ -78,7 +78,7 @@ If you see an error about missing API key, double-check `.env` is in the right l
 | Variable | Required | Default | Notes |
 |---|---|---|---|
 | `3D_AI_STUDIO_API_KEY` | Yes | None | Bearer token from 3D Studio account |
-| `3D_AI_STUDIO_API_URL` | No | `https://api.3dstudio.ai` | Override if using staging/custom endpoint |
+| `3D_AI_STUDIO_API_URL` | No | `https://api.3daistudio.com` | Override if using staging/custom endpoint |
 
 ### Python Client Configuration
 

@@ -1,271 +1,479 @@
 # 3D AI Studio API Reference
 
-Complete endpoint documentation, schemas, and error handling for API v1.
+Full endpoint documentation for the 3D AI Studio REST API.
 
 ## Base URL
 
 ```
-https://api.3dstudio.ai
+https://api.3daistudio.com
 ```
 
-Can be overridden with `3D_AI_STUDIO_API_URL` env var.
+Override with env var `3D_AI_STUDIO_API_URL`.
 
 ## Authentication
 
-All requests require Bearer token in the `Authorization` header:
-
 ```
-Authorization: Bearer <your_token_here>
+Authorization: Bearer <3D_AI_STUDIO_API_KEY>
 ```
 
-Token is sourced from `3D_AI_STUDIO_API_KEY` env var. Never hardcode tokens.
+## Async Pattern
 
-## Endpoints
+All generation/tool requests are async. Submit → get `task_id` → poll status.
 
-### POST /api/v1/miniature
-
-Start a miniature generation job.
-
-**Request Body:**
-
-```json
-{
-  "description": "string, required. Text description of the miniature.",
-  "style": "string, optional. One of: realistic, stylized, cartoon. Default: realistic",
-  "size_cm": "integer, optional. Size in centimeters. Default: 10",
-  "output_format": "string, optional. One of: gltf, obj, stl. Default: gltf"
-}
+```
+POST /v1/<endpoint>/   →  { "task_id": "abc-123", "created_at": "..." }
+GET  /v1/generation-request/<task_id>/status/
+Poll until status is "FINISHED"  →  results[] with asset URLs
 ```
 
-**Response (201 Created):**
+---
 
-```json
-{
-  "job_id": "abc-123-def-456",
-  "status": "submitted",
-  "created_at": "2026-03-17T02:30:00Z"
-}
-```
+## Credit Balance
 
-**Example:**
+### GET /account/user/wallet/
 
 ```bash
-curl -X POST https://api.3dstudio.ai/api/v1/miniature \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "description": "A sleeping golden retriever, 10cm tall, ceramic style",
-    "style": "realistic",
-    "size_cm": 10,
-    "output_format": "gltf"
-  }'
+curl https://api.3daistudio.com/account/user/wallet/ \
+  -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
-### POST /api/v1/generate
-
-Start a generic 3D generation job (for non-miniature items, lithophanes, etc.).
-
-**Request Body:**
-
+Response:
 ```json
-{
-  "prompt": "string, required. Description or prompt for 3D generation.",
-  "model": "string, optional. One of: default, detailed, fast. Default: default",
-  "output_format": "string, optional. One of: gltf, obj, stl. Default: gltf"
-}
+{ "balance": "150.00" }
 ```
 
-**Response (201 Created):**
+Credit expiry: purchased 365 days, promotional 31 days, refunded never.
 
-```json
-{
-  "job_id": "xyz-789-uvw",
-  "status": "submitted",
-  "created_at": "2026-03-17T02:35:00Z"
-}
-```
+---
 
-**Example:**
+## Generation Status (All Endpoints)
+
+### GET /v1/generation-request/{task_id}/status/
 
 ```bash
-curl -X POST https://api.3dstudio.ai/api/v1/generate \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "A lithophane of a sunset landscape",
-    "model": "detailed",
-    "output_format": "stl"
-  }'
+curl https://api.3daistudio.com/v1/generation-request/TASK_ID/status/ \
+  -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
-### GET /api/v1/status/{job_id}
-
-Poll the status of a submitted job.
-
-**Response (200 OK):**
-
+Response:
 ```json
 {
-  "job_id": "abc-123-def-456",
-  "status": "processing",
-  "progress": 45,
-  "created_at": "2026-03-17T02:30:00Z",
-  "updated_at": "2026-03-17T02:32:15Z",
-  "result_url": null
-}
-```
-
-**Status Values:**
-- `pending`: Queued, not yet processing
-- `processing`: Currently generating
-- `completed`: Done; `result_url` is populated
-- `failed`: Generation failed; check error message
-
-**Response when completed:**
-
-```json
-{
-  "job_id": "abc-123-def-456",
-  "status": "completed",
+  "status": "FINISHED",
   "progress": 100,
-  "created_at": "2026-03-17T02:30:00Z",
-  "completed_at": "2026-03-17T02:45:30Z",
-  "result_url": "https://api.3dstudio.ai/results/abc-123-def-456/model.gltf"
+  "failure_reason": null,
+  "results": [
+    {
+      "asset": "https://storage.3daistudio.com/assets/model.glb",
+      "asset_type": "3D_MODEL",
+      "metadata": null
+    }
+  ]
 }
 ```
 
-**Response when failed:**
+Status values: `PENDING` | `IN_PROGRESS` | `FINISHED` | `FAILED`
+
+Asset types: `3D_MODEL`, `SCALED_3D_MODEL`, `EDITED_IMAGE`, `IMAGE`, `ARCHIVE`
+
+---
+
+## 3D Generation
+
+### POST /v1/3d-models/tencent/generate/rapid/
+
+Tencent Hunyuan Rapid. Fast, text-to-3D or image-to-3D. Cost: 35 credits (+15 for PBR).
 
 ```json
 {
-  "job_id": "abc-123-def-456",
-  "status": "failed",
-  "error_message": "Description was too vague; please provide more detail",
-  "error_code": "INVALID_DESCRIPTION"
+  "prompt": "a red sports car",
+  "enable_pbr": true
 }
 ```
-
-**Example:**
-
-```bash
-curl -X GET https://api.3dstudio.ai/api/v1/status/abc-123-def-456 \
-  -H "Authorization: Bearer <token>"
-```
-
-### GET /api/v1/result/{job_id}
-
-Fetch the result metadata and download URL(s).
-
-**Response (200 OK):**
 
 ```json
 {
-  "job_id": "abc-123-def-456",
-  "status": "completed",
-  "file_url": "https://api.3dstudio.ai/results/abc-123-def-456/model.gltf",
-  "file_size_bytes": 2048576,
-  "filename": "model.gltf",
-  "output_format": "gltf",
-  "metadata": {
-    "vertices": 50000,
-    "triangles": 25000,
-    "dimensions_cm": { "x": 10, "y": 10, "z": 15 }
-  }
+  "image": "data:image/png;base64,...",
+  "enable_pbr": false
 }
 ```
 
-**Note:** If the job is still processing, the response is HTTP 202 (Accepted) with `file_url` as `null`.
+### POST /v1/3d-models/tencent/generate/pro/
 
-**Example:**
+Tencent Hunyuan Pro. High quality with advanced controls. Cost: 60 credits (+20 PBR, +20 multi-view).
 
-```bash
-curl -X GET https://api.3dstudio.ai/api/v1/result/abc-123-def-456 \
-  -H "Authorization: Bearer <token>"
-```
+Parameters:
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `prompt` | string | No* | Text description (*required if no image) |
+| `image` | string | No* | Base64 image for image-to-3D |
+| `multi_view_images` | array | No | Array of `{view_type, view_image}` — view_type: front/left/right/back |
+| `model` | string | No | Model version. Default: `"3.0"` |
+| `enable_pbr` | boolean | No | Enable PBR textures. Default: false |
+| `face_count` | integer | No | Max polygon count |
+| `generate_type` | string | No | `Normal` \| `Cartoon` \| `Sculpture` |
 
-## Error Responses
+### POST /v1/3d-models/trellis2/generate/
 
-### 400 Bad Request
+TRELLIS.2. Image-to-3D only. Cost: 10–50 credits.
 
 ```json
 {
-  "error": "INVALID_REQUEST",
-  "message": "Missing required field: description"
+  "image": "data:image/png;base64,...",
+  "enable_pbr": true
 }
 ```
 
-### 401 Unauthorized
+Also accepts `"image_url": "https://..."` instead of base64.
+
+### POST /v1/3d-models/tripo/text-to-3d/
+
+Tripo v3.0/v3.1. Text-to-3D. Cost: 0–120 credits.
 
 ```json
 {
-  "error": "INVALID_TOKEN",
-  "message": "Bearer token is invalid or expired"
+  "prompt": "a fantasy castle",
+  "version": "v3.1",
+  "enable_pbr": true
 }
 ```
 
-### 404 Not Found
+### POST /v1/3d-models/tripo/image-to-3d/
+
+Tripo image-to-3D (v3.0/v3.1).
 
 ```json
 {
-  "error": "JOB_NOT_FOUND",
-  "message": "Job ID does not exist or has been deleted"
+  "image": "data:image/png;base64,...",
+  "version": "v3.1",
+  "enable_pbr": true
 }
 ```
 
-### 429 Too Many Requests
+Also supports `multi_view_images` (2–4 images).
+
+### POST /v1/3d-models/tripo/text-to-3d/p1/
+
+Tripo P1 premium text-to-3D. Cost: 60–160 credits.
 
 ```json
 {
-  "error": "RATE_LIMIT_EXCEEDED",
-  "message": "Rate limit: 100 requests per minute",
-  "retry_after_seconds": 15
+  "prompt": "a detailed spaceship"
 }
 ```
 
-**Action:** Wait the specified seconds before retrying.
+### POST /v1/3d-models/tripo/image-to-3d/p1/
 
-### 500 Internal Server Error
+Tripo P1 premium image-to-3D.
 
 ```json
 {
-  "error": "INTERNAL_ERROR",
-  "message": "An unexpected error occurred. Please try again later."
+  "image": "data:image/png;base64,..."
 }
 ```
+
+Also supports multi-view images.
+
+---
+
+## Texturing
+
+### POST /v1/3d-models/tencent/texture-edit/
+
+Edit/re-texture an existing 3D model using a reference image or text prompt.
+
+```json
+{
+  "model_url": "https://storage.3daistudio.com/assets/model.glb",
+  "prompt": "make it look like polished gold"
+}
+```
+
+### POST /v1/3d-models/tripo/texture-model/
+
+Apply textures to an existing Tripo model.
+
+```json
+{
+  "model_url": "https://storage.3daistudio.com/assets/model.glb"
+}
+```
+
+---
+
+## Remeshing
+
+### POST /v1/3d-models/tencent/topology/
+
+Smart topology / remeshing.
+
+```json
+{
+  "model_url": "https://...",
+  "face_type": "triangle"
+}
+```
+
+`face_type`: `triangle` (games/AR) or `quadrilateral` (modeling/animation).
+
+### POST /v1/3d-models/tripo/convert-model/
+
+Tripo model conversion/remesh.
+
+```json
+{
+  "model_url": "https://..."
+}
+```
+
+---
+
+## Segmentation
+
+### POST /v1/3d-models/tripo/mesh-segmentation/
+
+Break a 3D model into semantic parts (for selective texturing, rigging prep, etc.).
+
+```json
+{
+  "model_url": "https://..."
+}
+```
+
+---
+
+## Image Generation
+
+### POST /v1/images/gemini/3/pro/generate/
+
+Gemini 3 Pro. Cost: 10 credits/image.
+
+```json
+{
+  "prompt": "a sunset over mountains",
+  "count": 1
+}
+```
+
+### POST /v1/images/gemini/3.1/flash/generate/
+
+Gemini 3.1 Flash. Cost: 7 credits/image. Best speed/quality balance.
+
+```json
+{
+  "prompt": "product photo of a sneaker",
+  "count": 1
+}
+```
+
+### POST /v1/images/gemini/2.5/flash/generate/
+
+Gemini 2.5 Flash. Cost: 5 credits/image. Up to 4 images per request. High-volume.
+
+```json
+{
+  "prompt": "a futuristic city",
+  "count": 4
+}
+```
+
+### POST /v1/images/seedream/v5/lite/generate/
+
+SeeDream v5 Lite image generation.
+
+```json
+{
+  "prompt": "anime style warrior"
+}
+```
+
+---
+
+## Tools
+
+### POST /v1/tools/convert/
+
+Convert 3D format. Cost: 10 credits.
+
+```json
+{
+  "model_url": "https://...",
+  "output_format": "fbx"
+}
+```
+
+Supported output: `obj`, `fbx`, `stl`, `ply`
+
+### POST /v1/tools/render/
+
+Render 3D model to image(s) or video. Cost: 5–20 credits.
+
+```json
+{
+  "model_url": "https://..."
+}
+```
+
+### POST /v1/tools/repair/
+
+Repair mesh issues, prepare for 3D printing, hollow models. Cost: 60–90 credits.
+
+```json
+{
+  "model_url": "https://..."
+}
+```
+
+### POST /v1/tools/optimize/
+
+Compress and optimize GLB (Draco compression, texture compression, simplification). Cost: 10 credits.
+
+```json
+{
+  "model_url": "https://..."
+}
+```
+
+### POST /v1/tools/bake-texture/
+
+Transfer textures from high-poly to retopologized mesh. Cost: 5 credits.
+
+```json
+{
+  "high_poly_model_url": "https://...",
+  "low_poly_model_url": "https://..."
+}
+```
+
+### POST /v1/tools/calculate-volume/
+
+Calculate volume, surface area, and material estimates at a given height. Cost: 20 credits. (Beta)
+
+```json
+{
+  "model_url": "https://..."
+}
+```
+
+### POST /v1/tools/image-enhance/
+
+Upscale and enhance images, remove noise/artifacts, optionally remove background. Cost: 15–20 credits.
+
+```json
+{
+  "image": "data:image/jpeg;base64,..."
+}
+```
+
+### POST /v1/tools/remove-bg/
+
+Remove image background with transparent PNG output. Cost: 3–5 credits.
+
+```json
+{
+  "image": "data:image/jpeg;base64,..."
+}
+```
+
+---
+
+## Flows
+
+### POST /v1/flow/miniature/
+
+Transform any photo into a 3D-printable miniature figurine. Cost: 200 (fast) or 300 (default) credits.
+
+```json
+{
+  "image": "data:image/png;base64,...",
+  "preset": "miniature_human_full_body",
+  "edition": "default"
+}
+```
+
+Parameters:
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `image` | string | Yes | Base64-encoded source image |
+| `preset` | string | Yes | Style preset (see below) |
+| `edition` | string | No | `default` (300 cr) or `fast` (200 cr). Default: `default` |
+| `2d_engine` | string | No | `v3`, `v3.1`, `v3.2`. Default: `v3` |
+| `3d_engine` | string | No | `hunyuan` or `prism`. Default: `hunyuan` |
+| `scale` | string | No | Named scale, ratio, or `custom`. Default: `none` |
+| `scale_height_cm` | number | No | Required when `scale=custom`. Max 100cm |
+| `face_count` | integer | No | 3,000–1,500,000 |
+| `obj_scale_multiplier` | number | No | OBJ coordinate multiplier. Default: 1000 (mm) |
+
+Preset options:
+| Preset | Description |
+|--------|-------------|
+| `miniature_human_full_body` | Stylized full-body human |
+| `miniature_human_bust` | Head and shoulders |
+| `miniature_animal` | Animal figurine |
+| `miniature_object` | Object figurine |
+| `v2_miniature_human_full_body` | Improved, no pedestal |
+| `v2_miniature_human_bust` | Improved, no pedestal |
+| `v2_miniature_animal` | Improved, no pedestal |
+| `v2_miniature_object` | Improved, no pedestal |
+| `v3_miniature_human_full_body` | No pedestal, removes unprintable accessories |
+| `v3_miniature_human_bust` | No pedestal |
+| `v3_miniature_animal` | Preserves fur and markings |
+| `v3_miniature_object` | No pedestal |
+| `v3_miniature_human_full_body_crossed_arms` | Crossed arms pose |
+| `v3_miniature_human_full_body_hands_on_hips` | Hands on hips pose |
+| `v3_miniature_human_full_body_thumbs_up` | Thumbs up pose |
+| `v3_miniature_human_full_body_hands_in_pockets` | Hands in pockets pose |
+| `v3_miniature_human_full_body_arms_behind_back` | Arms behind back |
+| `v3_miniature_human_full_body_waving` | Waving pose |
+| `v4_miniature_human_full_body` | Preserves clothing colors, keeps original pose |
+| `v4_miniature_general` | Universal — people, animals, vehicles, composites |
+| `realistic_human_full_body` | Realistic full-body |
+| `realistic_human_bust` | Realistic bust |
+| `realistic_animal` | Realistic animal |
+| `realistic_object` | Realistic object |
+
+Scale options:
+| Scale | Ratio |
+|-------|-------|
+| `none` | No scaling (default) |
+| `z` | 1:220 |
+| `n` | 1:160 |
+| `tt` | 1:120 |
+| `h0` | 1:87 |
+| `o` | 1:48 |
+| `g` | 1:22.5 |
+| `1:NUMBER` | Custom ratio (e.g. `1:150`) |
+| `custom` | Exact height; requires `scale_height_cm` |
+
+Status response for miniature includes:
+- `EDITED_IMAGE` — styled 2D preview image
+- `3D_MODEL` — unscaled GLB
+- `SCALED_3D_MODEL` — scaled GLB (when scale is set)
+- `ARCHIVE` — ZIP with OBJ (when scale is set)
+
+---
+
+## Error Reference
+
+| HTTP | Code | Description |
+|------|------|-------------|
+| 401 | `invalid_api_key` | Missing or invalid API key |
+| 401 | `api_key_expired` | Key expired — create a new one |
+| 401 | `api_key_revoked` | Key revoked |
+| 402 | `insufficient_credits` | Purchase credits |
+| 429 | `rate_limited` | 3 req/min default — wait and retry |
+| 400 | `validation_failed` | Invalid or missing parameters |
 
 ## Rate Limits
 
-- **Per minute:** 100 requests
-- **Per hour:** 10,000 requests
-- **Concurrent jobs:** Up to 50 per account
-
-Exceeding limits returns HTTP 429 with `Retry-After` header.
+- Default: 3 requests per minute
+- Custom limits available via dashboard
+- HTTP 429 on exceed
 
 ## Best Practices
 
-1. **Poll Intervals:** Use 5–10 second intervals for status checks. Don't poll faster than 1/second.
-2. **Timeouts:** Set HTTP timeouts to 30+ seconds; generation jobs can queue briefly.
-3. **Error Recovery:**
-   - 4xx errors: Fix the request and retry.
-   - 5xx errors: Implement exponential backoff (1s, 2s, 4s, 8s max).
-4. **Token Rotation:** Refresh tokens periodically; old tokens may be revoked.
-5. **File Download:** Download results within 24 hours; URLs expire after that.
-6. **Cleanup:** Delete old jobs via `DELETE /api/v1/job/{job_id}` (optional, frees quota).
-
-## Response Headers
-
-All successful responses include:
-
-```
-Content-Type: application/json
-X-Request-ID: unique-request-identifier
-X-RateLimit-Limit: 100
-X-RateLimit-Remaining: 95
-X-RateLimit-Reset: 1710681060
-```
-
-Use `X-RateLimit-Remaining` to detect approaching rate limits.
-
-## Webhooks (Future)
-
-v2 will support webhooks. For now, polling is the standard.
+1. Poll every 10 seconds for generation tasks (typical: 3–8 min)
+2. Download results within 24 hours — URLs expire
+3. Use `--wait` flag in the client for automated polling
+4. On 429: wait and retry (do not retry immediately)
+5. Failed jobs refund credits automatically
+6. All generation outputs GLB — use Convert tool for other formats

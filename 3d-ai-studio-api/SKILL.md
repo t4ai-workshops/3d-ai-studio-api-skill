@@ -1,11 +1,11 @@
 ---
 name: 3d-ai-studio-api
-description: Interact with 3D AI Studio API from agents. Use when starting 3D generation jobs, polling job status, or fetching results. Supports miniature flow, 3D object generation, and lithophane/customization workflows. Authenticates via Bearer token from env. Scope v1 includes job creation, status polling, and result retrieval.
+description: Interact with the 3D AI Studio API. Use when generating 3D models from text or images, creating miniature figurines, generating/editing images, using tools (convert, render, repair, optimize), or polling job status. All operations are async — submit a request, get a task_id, poll until FINISHED. Authenticates via Bearer token from env var 3D_AI_STUDIO_API_KEY.
 ---
 
 # 3D AI Studio API Skill
 
-Integrate 3D AI Studio API calls into your workflows. This skill provides authenticated access to job creation, status polling, and result fetching.
+Programmatic access to 3D AI Studio: text-to-3D, image-to-3D, AI image generation, 3D tools (convert, render, repair, optimize, bake), and the miniature figurine flow.
 
 ## Quick Start
 
@@ -14,175 +14,305 @@ Integrate 3D AI Studio API calls into your workflows. This skill provides authen
 Set your API key in `.env`:
 
 ```bash
-3D_AI_STUDIO_API_KEY=your_bearer_token_here
+3D_AI_STUDIO_API_KEY=your_api_key_here
 ```
 
-The skill reads this key automatically.
+### Core Pattern — All Operations Are Async
 
-### Core Operations
-
-**1. Start a miniature generation job**
+Every generation or tool request returns a `task_id`. Poll status until `FINISHED`.
 
 ```bash
-python scripts/3d_api_client.py start-miniature \
-  --description "A golden retriever statue, 10cm tall" \
-  --style "realistic" \
-  --output-format gltf
+# 1. Submit a request → get task_id
+python scripts/3d_api_client.py tencent-rapid --prompt "a wooden chair" --enable-pbr
+
+# 2. Poll status
+python scripts/3d_api_client.py status --task-id <task_id>
+
+# 3. Download results when FINISHED
+python scripts/3d_api_client.py download --task-id <task_id> --output-dir ./results
 ```
 
-**2. Poll job status**
+Or use `--wait` to poll automatically:
 
 ```bash
-python scripts/3d_api_client.py status --job-id abc-123-def
-```
-
-**3. Fetch results**
-
-```bash
-python scripts/3d_api_client.py fetch-result --job-id abc-123-def --output-dir ./results
+python scripts/3d_api_client.py tencent-rapid --prompt "a wooden chair" --enable-pbr --wait --output-dir ./results
 ```
 
 ## Authentication
 
-The skill uses **Bearer token authentication** from the environment variable `3D_AI_STUDIO_API_KEY`.
+Bearer token from environment variable `3D_AI_STUDIO_API_KEY`.
 
-- Tokens are passed in the `Authorization: Bearer <token>` header
-- No token in code; always sourced from `.env`
-- Token rotation: Update `.env` and restart sessions that cached the old value
-
-## Endpoints (v1)
-
-### Miniature Generation (`POST /api/v1/miniature`)
-
-Create a 3D miniature from a text description.
-
-**Script command:**
-```bash
-python scripts/3d_ai_studio_client.py start-miniature \
-  --description "..." \
-  [--style realistic|stylized|cartoon] \
-  [--size 5|10|15|20] \
-  [--output-format gltf|obj|stl]
+```
+Authorization: Bearer <your_api_key>
 ```
 
-**Response:** Job ID for polling.
+**Base URL:** `https://api.3daistudio.com`
 
-### 3D Generation (`POST /api/v1/generate`)
+## Available Commands
 
-Generic 3D object generation (used for non-miniature items, lithophanes, etc.).
-
-**Script command:**
-```bash
-python scripts/3d_ai_studio_client.py start-generation \
-  --prompt "..." \
-  [--model default|detailed|fast] \
-  [--output-format gltf|obj|stl]
-```
-
-**Response:** Job ID for polling.
-
-### Job Status (`GET /api/v1/status/:job_id`)
-
-Poll the status of a running or completed job.
-
-**Script command:**
-```bash
-python scripts/3d_ai_studio_client.py status --job-id <job_id>
-```
-
-**Response:** Status (`pending|processing|completed|failed`), progress (0–100), and result URLs (when complete).
-
-### Fetch Result (`GET /api/v1/result/:job_id`)
-
-Download the generated 3D file(s).
-
-**Script command:**
-```bash
-python scripts/3d_ai_studio_client.py fetch-result \
-  --job-id <job_id> \
-  [--output-dir ./results]
-```
-
-**Response:** Local file paths of downloaded models.
-
-## Workflow Examples
-
-### Miniature Generation with Polling
+### Credit Balance
 
 ```bash
-# Start the job
-JOB_ID=$(python scripts/3d_ai_studio_client.py start-miniature \
-  --description "A sleeping cat, ceramic style, 7cm tall" | grep -oP '"job_id":"?\K[^"]+')
-
-# Poll until complete (max 10 attempts, 5s between)
-for i in {1..10}; do
-  STATUS=$(python scripts/3d_ai_studio_client.py status --job-id $JOB_ID)
-  echo "Attempt $i: $STATUS"
-  [[ $STATUS == *"completed"* ]] && break
-  sleep 5
-done
-
-# Fetch results
-python scripts/3d_ai_studio_client.py fetch-result --job-id $JOB_ID --output-dir ./miniatures
+python scripts/3d_api_client.py balance
 ```
 
-### Batch Generation
+### 3D Generation
 
-For multiple items, use a simple loop or distribute across parallel jobs:
+**Tencent Hunyuan — Rapid** (35 credits, fast)
+```bash
+python scripts/3d_api_client.py tencent-rapid \
+  --prompt "a red sports car" \
+  [--enable-pbr] \
+  [--wait] [--output-dir ./results]
+```
+
+**Tencent Hunyuan — Pro** (60 credits + 20 for PBR + 20 for multi-view)
+```bash
+python scripts/3d_api_client.py tencent-pro \
+  --prompt "a medieval sword with ornate handle" \
+  [--model 3.0] \
+  [--enable-pbr] \
+  [--face-count 500000] \
+  [--generate-type Normal|Cartoon|Sculpture] \
+  [--wait] [--output-dir ./results]
+
+# Image-to-3D
+python scripts/3d_api_client.py tencent-pro \
+  --image path/to/image.jpg \
+  [--enable-pbr] [--wait]
+```
+
+**TRELLIS.2** (10–50 credits, image-to-3D only)
+```bash
+python scripts/3d_api_client.py trellis \
+  --image path/to/image.jpg \
+  [--enable-pbr] \
+  [--wait] [--output-dir ./results]
+```
+
+**Tripo v3.0/v3.1** (0–120 credits, text or image)
+```bash
+python scripts/3d_api_client.py tripo \
+  --prompt "a fantasy castle" \
+  [--version v3.0|v3.1] \
+  [--enable-pbr] \
+  [--wait] [--output-dir ./results]
+
+# Image-to-3D
+python scripts/3d_api_client.py tripo \
+  --image path/to/image.jpg \
+  [--version v3.1] [--enable-pbr] [--wait]
+```
+
+**Tripo P1** (60–160 credits, premium)
+```bash
+python scripts/3d_api_client.py tripo-p1 \
+  --prompt "a detailed spaceship" \
+  [--wait] [--output-dir ./results]
+
+# Image-to-3D
+python scripts/3d_api_client.py tripo-p1 \
+  --image path/to/image.jpg \
+  [--wait]
+```
+
+### Image Generation
+
+**Gemini 3 Pro** (10 credits/image)
+```bash
+python scripts/3d_api_client.py image-gemini3pro \
+  --prompt "a sunset over mountains" \
+  [--count 1] \
+  [--wait] [--output-dir ./results]
+```
+
+**Gemini 3.1 Flash** (7 credits/image)
+```bash
+python scripts/3d_api_client.py image-gemini31flash \
+  --prompt "product photo of a sneaker" \
+  [--count 1] [--wait]
+```
+
+**Gemini 2.5 Flash** (5 credits/image, high-volume)
+```bash
+python scripts/3d_api_client.py image-gemini25flash \
+  --prompt "a futuristic city" \
+  [--count 1] [--wait]
+```
+
+**SeeDream v5 Lite** (cost varies)
+```bash
+python scripts/3d_api_client.py image-seedream \
+  --prompt "anime style warrior" \
+  [--wait]
+```
+
+### Tools
+
+**Convert format** (10 credits)
+```bash
+python scripts/3d_api_client.py convert \
+  --model-url "https://..." \
+  --output-format obj|fbx|stl|ply \
+  [--wait]
+```
+
+**Render to image/video** (5–20 credits)
+```bash
+python scripts/3d_api_client.py render \
+  --model-url "https://..." \
+  [--wait] [--output-dir ./results]
+```
+
+**Repair mesh / print prep** (60–90 credits)
+```bash
+python scripts/3d_api_client.py repair \
+  --model-url "https://..." \
+  [--wait]
+```
+
+**Optimize / compress** (10 credits)
+```bash
+python scripts/3d_api_client.py optimize \
+  --model-url "https://..." \
+  [--wait]
+```
+
+**Bake texture** (5 credits)
+```bash
+python scripts/3d_api_client.py bake-texture \
+  --high-poly-url "https://..." \
+  --low-poly-url "https://..." \
+  [--wait]
+```
+
+**Remove background** (3–5 credits)
+```bash
+python scripts/3d_api_client.py remove-bg \
+  --image path/to/image.jpg \
+  [--wait] [--output-dir ./results]
+```
+
+**Image enhance** (15–20 credits)
+```bash
+python scripts/3d_api_client.py image-enhance \
+  --image path/to/image.jpg \
+  [--wait] [--output-dir ./results]
+```
+
+**Calculate volume** (20 credits, beta)
+```bash
+python scripts/3d_api_client.py volume \
+  --model-url "https://..." \
+  [--wait]
+```
+
+### Miniature Flow
+
+Transform any photo into a 3D-printable miniature figurine (200–300 credits).
 
 ```bash
-for desc in "Golden Retriever" "Tabby Cat" "Parrot"; do
-  JOB_ID=$(python scripts/3d_ai_studio_client.py start-miniature --description "$desc")
-  echo "$desc: $JOB_ID" >> jobs.txt
-done
-
-# Later, check status and fetch all
-while IFS=': ' read -r NAME JID; do
-  python scripts/3d_ai_studio_client.py fetch-result --job-id $JID --output-dir "./results/$NAME"
-done < jobs.txt
+python scripts/3d_api_client.py miniature \
+  --image path/to/photo.jpg \
+  --preset miniature_human_full_body \
+  [--edition default|fast] \
+  [--scale none|h0|o|g|1:150|custom] \
+  [--scale-height-cm 5.0] \
+  [--wait] [--output-dir ./results]
 ```
 
-## Error Handling
+**Presets:**
+- `miniature_human_full_body` — stylized full-body human
+- `miniature_human_bust` — head and shoulders
+- `miniature_animal` — animal figurine
+- `miniature_object` — object figurine
+- `v2_*` / `v3_*` / `v4_*` — improved versions (no pedestal)
+- `v3_miniature_human_full_body_crossed_arms` — crossed arms pose
+- `v3_miniature_human_full_body_hands_on_hips` — hands on hips
+- `v4_miniature_general` — universal preset (people, animals, vehicles, composites)
+- `realistic_human_full_body` / `realistic_human_bust` — realistic style
 
-**API Authentication Failures**
+**Scale options:** `none` (default), `z` (1:220), `n` (1:160), `tt` (1:120), `h0` (1:87), `o` (1:48), `g` (1:22.5), `1:NUMBER` (custom ratio), `custom` (requires `--scale-height-cm`)
 
-- Missing or invalid token: The script will error immediately.
-- Expired token: Update `.env` and retry.
+### Status & Download
 
-**Job Failures**
+```bash
+# Check status once
+python scripts/3d_api_client.py status --task-id <task_id>
 
-- If a job fails, status will show `failed` with an error message.
-- Retry with adjusted parameters (description clarity, size constraints, etc.).
+# Poll until complete
+python scripts/3d_api_client.py status --task-id <task_id> --poll
 
-**Network Timeouts**
+# Download results
+python scripts/3d_api_client.py download --task-id <task_id> --output-dir ./results
+```
 
-- Default timeout: 30 seconds per request.
-- Increase with `--timeout <seconds>` in any command.
+## Status Values
 
-## Implementation Details
+| Status | Meaning |
+|--------|---------|
+| `PENDING` | Queued, not yet processing |
+| `IN_PROGRESS` | Currently generating |
+| `FINISHED` | Complete — results array has download URLs |
+| `FAILED` | Failed — credits automatically refunded |
 
-See [references/api_reference.md](references/api_reference.md) for:
-- Full endpoint documentation
-- Response schemas
-- Error codes and messages
-- Rate limits and best practices
+## Status Response Format
 
-See [references/examples.md](references/examples.md) for:
-- Real-world workflow examples
-- Output file handling
-- Integration patterns
+```json
+{
+  "status": "FINISHED",
+  "progress": 100,
+  "failure_reason": null,
+  "results": [
+    {
+      "asset": "https://storage.3daistudio.com/assets/model.glb",
+      "asset_type": "3D_MODEL",
+      "metadata": null
+    }
+  ]
+}
+```
 
-## Assumptions & Notes
+Asset types: `3D_MODEL`, `SCALED_3D_MODEL`, `EDITED_IMAGE`, `IMAGE`, `ARCHIVE`
 
-- **API Base URL:** Inferred from standard `3D_AI_STUDIO_API_URL` env var (falls back to defaults if not set)
-- **API Key Env Var:** `3D_AI_STUDIO_API_KEY` (can be overridden with `--api-key` flag)
-- **Output Formats:** Default is GLTF; OBJ and STL supported but availability depends on job type
-- **Job Polling:** Status checks don't consume rate limits heavily; safe to poll frequently
-- **Result Caching:** Downloaded files are cached locally; redownloading the same job ID is instant
-- **Concurrency:** API supports concurrent jobs; no per-user rate limits documented in v1
+## Rate Limits
 
-## Security Notes
+- Default: **3 requests per minute**
+- HTTP 429 when exceeded — wait and retry
+- Custom limits available via dashboard
 
-- **Never commit `.env`** — use `.gitignore` to exclude it
-- **Token rotation:** Supported; update `.env` and restart sessions
-- **No logging of tokens:** Scripts strip tokens before any output or logging
+## Error Codes
+
+| Status | Code | Action |
+|--------|------|--------|
+| 401 | `invalid_api_key` | Check your API key |
+| 401 | `api_key_expired` | Create a new key in the dashboard |
+| 402 | `insufficient_credits` | Purchase credits |
+| 429 | `rate_limited` | Wait and retry |
+| 400 | `validation_failed` | Fix request parameters |
+
+## Workflow Example — Full Miniature Pipeline
+
+```bash
+# 1. Check balance
+python scripts/3d_api_client.py balance
+
+# 2. Create miniature with auto-polling
+python scripts/3d_api_client.py miniature \
+  --image ./photo.jpg \
+  --preset v3_miniature_human_full_body \
+  --edition default \
+  --scale h0 \
+  --wait \
+  --output-dir ./my_miniature
+# → Downloads styled image, GLB, and scaled GLB (H0 1:87)
+```
+
+## Implementation Notes
+
+- All endpoints output **GLB** by default; use the Convert tool for OBJ/FBX/STL/PLY
+- Result URLs expire after **24 hours** — download promptly
+- Poll every **10 seconds** for generation tasks (3–8 min typical)
+- The `--wait` flag polls automatically and downloads on completion
+- Images passed as `--image` are auto-encoded to base64 by the client
+- SKILL.md is the agent-facing reference; see `references/api_reference.md` for full endpoint details
